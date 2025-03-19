@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>小畫家</title>
+  <!-- 引入 Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(to right, #e6e9f0, #eef1f5);
+      color: #333;
+    }
+    #toolbar {
+      background: linear-gradient(to right, #4a90e2, #357ab8);
+      padding: 12px 20px;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      border-bottom: none;
+    }
+    /* 將工具列分成兩行 */
+    #buttonRow, #statusRow {
+      display: block;
+      margin-bottom: 5px;
+    }
+    #statusRow {
+      margin-top: 10px;
+    }
+    #toolbar button,
+    #toolbar select,
+    #toolbar input {
+      margin: 0 5px;
+      padding: 6px 12px;
+      font-size: 14px;
+      border: none;
+      border-radius: 4px;
+      transition: background 0.3s;
+    }
+    #toolbar button {
+      background-color: #fff;
+      color: #357ab8;
+      cursor: pointer;
+    }
+    #toolbar button:hover {
+      background-color: #e6e6e6;
+    }
+    #toolbar button.active {
+      background-color: #ffcc00;
+      color: #333;
+    }
+    #toolbar select,
+    #toolbar input[type="number"],
+    #toolbar input[type="color"] {
+      background-color: #fff;
+      color: #333;
+    }
+    #toolbar label {
+      color: #fff;
+      font-weight: 500;
+      margin-left: 10px;
+    }
+    #currentToolDisplay, #canvasDimensions {
+      font-weight: 500;
+      color: #fff;
+    }
+    /* 新增裁剪尺寸提示（跟隨滑鼠） */
+    #cropInfo {
+      position: absolute;
+      display: none;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    /* 新增筆刷／橡皮擦指示器（跟隨滑鼠） */
+    #cursorOverlay {
+      position: absolute;
+      pointer-events: none;
+      border: 1px solid #000;
+      border-radius: 50%;
+      display: none;
+      z-index: 1000;
+    }
+    #canvasWrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      background-color: #fff;
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <div id="buttonRow">
+      <!-- 筆刷按鈕與相關控制項放在同一行 -->
+      <button id="pencil" class="active">筆刷</button>
+      <select id="brushSize">
+        <option value="2">細</option>
+        <option value="5" selected>中</option>
+        <option value="10">粗</option>
+        <option value="20">特粗</option>
+      </select>
+      <input type="color" id="colorPicker" value="#ff0000">
+      
+      <!-- 橡皮擦按鈕與獨立尺寸選項 -->
+      <button id="eraser">橡皮擦</button>
+      <select id="eraserSize">
+        <option value="2">細</option>
+        <option value="5" selected>中</option>
+        <option value="10">粗</option>
+        <option value="20">特粗</option>
+      </select>
+      
+      <button id="mosaic">馬賽克</button>
+      <!-- 馬賽克大小放在馬賽克按鈕旁 -->
+      <label for="mosaicBlockSize">馬賽克大小:</label>
+      <input type="number" id="mosaicBlockSize" value="10" min="2" style="width:60px;">
+      
+      <button id="crop">裁剪</button>
+      
+      <!-- 旋轉為即時操作 -->
+      <button id="rotate">旋轉</button>
+      <label for="rotateAngle">旋轉角度:</label>
+      <input type="number" id="rotateAngle" value="90" style="width:60px;">
+      
+      <!-- 復原與取消復原按鈕 -->
+      <button id="undo">復原 (0)</button>
+      <button id="redo">取消復原 (0)</button>
+      <button id="clear">清除</button>
+      <button id="save">儲存</button>
+      <button id="copy">複製到剪貼簿</button>
+    </div>
+    <div id="statusRow">
+      <span id="currentToolDisplay">目前工具：筆刷</span>
+      <span id="canvasDimensions">畫布尺寸：800 x 600</span>
+      <span style="color:#fff; margin-left:10px;">（可直接 Ctrl+V 貼上圖片）</span>
+    </div>
+  </div>
+  <div id="canvasWrapper">
+    <canvas id="paintCanvas" width="800" height="600"></canvas>
+  </div>
+  <!-- 裁剪尺寸提示區（跟隨滑鼠） -->
+  <div id="cropInfo"></div>
+  <!-- 筆刷／橡皮擦指示器 -->
+  <div id="cursorOverlay"></div>
+  <script>
+    const canvas = document.getElementById("paintCanvas");
+    const ctx = canvas.getContext("2d");
+    const cropInfo = document.getElementById("cropInfo");
+    const cursorOverlay = document.getElementById("cursorOverlay");
+
+    // 更新畫布尺寸顯示
+    function updateCanvasDimensions() {
+      document.getElementById("canvasDimensions").innerText =
+        "畫布尺寸：" + canvas.width + " x " + canvas.height;
+    }
+
+    // 更新復原與取消復原按鈕次數顯示
+    function updateUndoRedoDisplay() {
+      document.getElementById("undo").innerText = "復原 (" + undoStack.length + ")";
+      document.getElementById("redo").innerText = "取消復原 (" + redoStack.length + ")";
+    }
+
+    // 畫圖相關變數
+    let drawing = false;
+    let currentTool = "pencil";  // 可選：pencil、eraser、mosaic、crop
+    let brushSize = document.getElementById("brushSize").value;
+    let currentColor = document.getElementById("colorPicker").value;
+    let eraserSize = document.getElementById("eraserSize").value;
+    const mosaicBlockSize = document.getElementById("mosaicBlockSize");
+
+    // 使用 state 物件 {width, height, data} 儲存復原狀態
+    const undoStack = [];
+    const redoStack = [];
+    function pushState() {
+      redoStack.length = 0;
+      undoStack.push({
+        width: canvas.width,
+        height: canvas.height,
+        data: ctx.getImageData(0, 0, canvas.width, canvas.height)
+      });
+      updateUndoRedoDisplay();
+    }
+    function undo() {
+      if (undoStack.length > 0) {
+        redoStack.push({
+          width: canvas.width,
+          height: canvas.height,
+          data: ctx.getImageData(0, 0, canvas.width, canvas.height)
+        });
+        const state = undoStack.pop();
+        canvas.width = state.width;
+        canvas.height = state.height;
+        ctx.putImageData(state.data, 0, 0);
+        updateCanvasDimensions();
+        updateUndoRedoDisplay();
+      }
+    }
+    function redo() {
+      if (redoStack.length > 0) {
+        undoStack.push({
+          width: canvas.width,
+          height: canvas.height,
+          data: ctx.getImageData(0, 0, canvas.width, canvas.height)
+        });
+        const state = redoStack.pop();
+        canvas.width = state.width;
+        canvas.height = state.height;
+        ctx.putImageData(state.data, 0, 0);
+        updateCanvasDimensions();
+        updateUndoRedoDisplay();
+      }
+    }
+
+    // 用於馬賽克的變數
+    let mosaicDrawing = false;
+    let mosaicStartX = 0, mosaicStartY = 0;
+    let mosaicSnapshot = null;
+
+    // 用於裁剪的變數
+    let cropDrawing = false;
+    let cropStartX = 0, cropStartY = 0;
+    let cropSnapshot = null;
+
+    // 取得 canvas 內滑鼠相對座標
+    function getX(e) {
+      const rect = canvas.getBoundingClientRect();
+      return e.clientX - rect.left;
+    }
+    function getY(e) {
+      const rect = canvas.getBoundingClientRect();
+      return e.clientY - rect.top;
+    }
+
+    // 更新目前工具顯示
+    function updateCurrentToolDisplay() {
+      let displayText = "";
+      switch(currentTool) {
+        case "pencil": displayText = "筆刷"; break;
+        case "eraser": displayText = "橡皮擦"; break;
+        case "mosaic": displayText = "馬賽克"; break;
+        case "crop":   displayText = "裁剪"; break;
+        default: displayText = "";
+      }
+      document.getElementById("currentToolDisplay").innerText = "目前工具：" + displayText;
+      if (currentTool !== "crop") {
+        cropInfo.style.display = "none";
+      }
+    }
+    // 更新工具按鈕 active 樣式
+    function updateToolButtonStyles(selectedTool) {
+      const buttons = ["pencil", "eraser", "mosaic", "crop"];
+      buttons.forEach(tool => {
+        document.getElementById(tool).classList.toggle("active", tool === selectedTool);
+      });
+    }
+
+    // 更新筆刷／橡皮擦指示器
+    function updateCursorOverlay(e) {
+      if (currentTool === "pencil" || currentTool === "eraser") {
+        let size = 0;
+        if (currentTool === "pencil") {
+          size = parseInt(brushSize);
+        } else if (currentTool === "eraser") {
+          size = parseInt(eraserSize);
+        }
+        cursorOverlay.style.display = "block";
+        cursorOverlay.style.width = size + "px";
+        cursorOverlay.style.height = size + "px";
+        cursorOverlay.style.borderRadius = "50%";
+        // 當筆刷則使用目前色彩，當橡皮擦則使用灰色
+        cursorOverlay.style.border = "1px solid " + (currentTool === "pencil" ? currentColor : "#888");
+        cursorOverlay.style.left = (e.pageX - size / 2) + "px";
+        cursorOverlay.style.top = (e.pageY - size / 2) + "px";
+      } else {
+        cursorOverlay.style.display = "none";
+      }
+    }
+
+    // 筆刷與橡皮擦：開始、繪製與結束繪圖
+    function startDraw(e) {
+      drawing = true;
+      pushState();
+      ctx.beginPath();
+      ctx.moveTo(getX(e), getY(e));
+    }
+    function draw(e) {
+      if (!drawing) return;
+      if (currentTool === "pencil") {
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = brushSize;
+      } else if (currentTool === "eraser") {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = eraserSize;
+      }
+      ctx.lineCap = "round";
+      ctx.lineTo(getX(e), getY(e));
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(getX(e), getY(e));
+    }
+    function endDraw() {
+      if (!drawing) return;
+      drawing = false;
+      ctx.beginPath();
+    }
+
+    // 清除功能：重設畫布尺寸為 800×600，並清空所有內容與復原/取消復原記錄
+    function clearCanvas() {
+      canvas.width = 800;
+      canvas.height = 600;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      undoStack.length = 0;
+      redoStack.length = 0;
+      updateCanvasDimensions();
+      updateUndoRedoDisplay();
+    }
+    function saveImage() {
+      const link = document.createElement("a");
+      link.download = Date.now() + ".png";
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+
+    // 複製到剪貼簿功能，使用 Clipboard API
+    function copyToClipboard() {
+      canvas.toBlob(function(blob) {
+        const item = new ClipboardItem({ "image/png": blob });
+        navigator.clipboard.write([item]).then(() => {
+          alert("複製成功到剪貼簿！");
+        }).catch(err => {
+          alert("複製失敗：" + err);
+        });
+      });
+    }
+
+    // 馬賽克效果：對指定區域進行像素化處理
+    function applyMosaic(x, y, width, height, blockSize) {
+      if (width === 0 || height === 0) return;
+      const imgData = ctx.getImageData(x, y, width, height);
+      const data = imgData.data;
+      for (let i = 0; i < height; i += blockSize) {
+        for (let j = 0; j < width; j += blockSize) {
+          let red = 0, green = 0, blue = 0, alpha = 0, count = 0;
+          for (let dy = 0; dy < blockSize; dy++) {
+            for (let dx = 0; dx < blockSize; dx++) {
+              const px = j + dx;
+              const py = i + dy;
+              if (px < width && py < height) {
+                const index = (py * width + px) * 4;
+                red += data[index];
+                green += data[index + 1];
+                blue += data[index + 2];
+                alpha += data[index + 3];
+                count++;
+              }
+            }
+          }
+          const avgR = red / count;
+          const avgG = green / count;
+          const avgB = blue / count;
+          const avgA = alpha / count;
+          for (let dy = 0; dy < blockSize; dy++) {
+            for (let dx = 0; dx < blockSize; dx++) {
+              const px = j + dx;
+              const py = i + dy;
+              if (px < width && py < height) {
+                const index = (py * width + px) * 4;
+                data[index] = avgR;
+                data[index + 1] = avgG;
+                data[index + 2] = avgB;
+                data[index + 3] = avgA;
+              }
+            }
+          }
+        }
+      }
+      ctx.putImageData(imgData, x, y);
+    }
+
+    // 旋轉功能：旋轉整個畫布圖片，支援復原
+    function rotateImage(angle) {
+      pushState();
+      const rad = angle * Math.PI / 180;
+      const width = canvas.width;
+      const height = canvas.height;
+      const newWidth = Math.abs(width * Math.cos(rad)) + Math.abs(height * Math.sin(rad));
+      const newHeight = Math.abs(width * Math.sin(rad)) + Math.abs(height * Math.cos(rad));
+      const tempCanvas = document.createElement("canvas");
+      const tempCtx = tempCanvas.getContext("2d");
+      tempCanvas.width = newWidth;
+      tempCanvas.height = newHeight;
+      tempCtx.translate(newWidth / 2, newHeight / 2);
+      tempCtx.rotate(rad);
+      tempCtx.drawImage(canvas, -width / 2, -height / 2);
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      ctx.clearRect(0, 0, newWidth, newHeight);
+      ctx.drawImage(tempCanvas, 0, 0);
+      updateCanvasDimensions();
+    }
+
+    // Canvas 事件處理
+    canvas.addEventListener("mousedown", function(e) {
+      if (currentTool === "mosaic") {
+        mosaicDrawing = true;
+        mosaicStartX = getX(e);
+        mosaicStartY = getY(e);
+        mosaicSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      } else if (currentTool === "crop") {
+        cropDrawing = true;
+        cropStartX = getX(e);
+        cropStartY = getY(e);
+        cropSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        cropInfo.style.display = "block";
+      } else {
+        startDraw(e);
+      }
+    });
+    canvas.addEventListener("mousemove", function(e) {
+      if (currentTool === "pencil" || currentTool === "eraser") {
+        updateCursorOverlay(e);
+      } else {
+        cursorOverlay.style.display = "none";
+      }
+      if (currentTool === "mosaic" && mosaicDrawing) {
+        ctx.putImageData(mosaicSnapshot, 0, 0);
+        const currentX = getX(e);
+        const currentY = getY(e);
+        const rectX = Math.min(mosaicStartX, currentX);
+        const rectY = Math.min(mosaicStartY, currentY);
+        const rectWidth = Math.abs(currentX - mosaicStartX);
+        const rectHeight = Math.abs(currentY - mosaicStartY);
+        ctx.beginPath();
+        ctx.setLineDash([6, 3]);
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 1;
+        ctx.rect(rectX, rectY, rectWidth, rectHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (currentTool === "crop" && cropDrawing) {
+        ctx.putImageData(cropSnapshot, 0, 0);
+        const currentX = getX(e);
+        const currentY = getY(e);
+        const rectX = Math.min(cropStartX, currentX);
+        const rectY = Math.min(cropStartY, currentY);
+        const rectWidth = Math.abs(currentX - cropStartX);
+        const rectHeight = Math.abs(currentY - cropStartY);
+        cropInfo.innerText = "W:" + rectWidth + " H:" + rectHeight;
+        cropInfo.style.left = (e.pageX + 10) + "px";
+        cropInfo.style.top = (e.pageY + 10) + "px";
+        ctx.beginPath();
+        ctx.setLineDash([6, 3]);
+        ctx.strokeStyle = "green";
+        ctx.lineWidth = 1;
+        ctx.rect(rectX, rectY, rectWidth, rectHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        draw(e);
+      }
+    });
+    canvas.addEventListener("mouseup", function(e) {
+      if (currentTool === "mosaic" && mosaicDrawing) {
+        mosaicDrawing = false;
+        ctx.putImageData(mosaicSnapshot, 0, 0);
+        const endX = getX(e), endY = getY(e);
+        const rectX = Math.min(mosaicStartX, endX);
+        const rectY = Math.min(mosaicStartY, endY);
+        const rectWidth = Math.abs(endX - mosaicStartX);
+        const rectHeight = Math.abs(endY - mosaicStartY);
+        pushState();
+        applyMosaic(rectX, rectY, rectWidth, rectHeight, parseInt(mosaicBlockSize.value));
+      } else if (currentTool === "crop" && cropDrawing) {
+        cropDrawing = false;
+        ctx.putImageData(cropSnapshot, 0, 0);
+        const endX = getX(e), endY = getY(e);
+        const rectX = Math.min(cropStartX, endX);
+        const rectY = Math.min(cropStartY, endY);
+        const rectWidth = Math.abs(endX - cropStartX);
+        const rectHeight = Math.abs(endY - cropStartY);
+        pushState();
+        const croppedData = ctx.getImageData(rectX, rectY, rectWidth, rectHeight);
+        canvas.width = rectWidth;
+        canvas.height = rectHeight;
+        ctx.putImageData(croppedData, 0, 0);
+        updateCanvasDimensions();
+        cropInfo.style.display = "none";
+      } else {
+        endDraw();
+      }
+    });
+    canvas.addEventListener("mouseout", function(e) {
+      if (currentTool === "mosaic" && mosaicDrawing) {
+        mosaicDrawing = false;
+        ctx.putImageData(mosaicSnapshot, 0, 0);
+      } else if (currentTool === "crop" && cropDrawing) {
+        cropDrawing = false;
+        ctx.putImageData(cropSnapshot, 0, 0);
+        cropInfo.style.display = "none";
+      } else {
+        endDraw();
+      }
+      cursorOverlay.style.display = "none";
+    });
+
+    // 工具按鈕事件綁定
+    document.getElementById("pencil").addEventListener("click", () => {
+      currentTool = "pencil";
+      updateCurrentToolDisplay();
+      updateToolButtonStyles("pencil");
+    });
+    document.getElementById("eraser").addEventListener("click", () => {
+      currentTool = "eraser";
+      updateCurrentToolDisplay();
+      updateToolButtonStyles("eraser");
+    });
+    document.getElementById("mosaic").addEventListener("click", () => {
+      currentTool = "mosaic";
+      updateCurrentToolDisplay();
+      updateToolButtonStyles("mosaic");
+    });
+    document.getElementById("crop").addEventListener("click", () => {
+      currentTool = "crop";
+      updateCurrentToolDisplay();
+      updateToolButtonStyles("crop");
+    });
+    document.getElementById("rotate").addEventListener("click", () => {
+      const angle = parseFloat(document.getElementById("rotateAngle").value);
+      rotateImage(angle);
+    });
+    document.getElementById("brushSize").addEventListener("change", (e) => {
+      brushSize = e.target.value;
+    });
+    document.getElementById("colorPicker").addEventListener("change", (e) => {
+      currentColor = e.target.value;
+    });
+    document.getElementById("eraserSize").addEventListener("change", (e) => {
+      eraserSize = e.target.value;
+    });
+    document.getElementById("clear").addEventListener("click", clearCanvas);
+    document.getElementById("undo").addEventListener("click", undo);
+    document.getElementById("redo").addEventListener("click", redo);
+    document.getElementById("save").addEventListener("click", saveImage);
+    document.getElementById("copy").addEventListener("click", copyToClipboard);
+
+    document.addEventListener("paste", function(e) {
+      const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf("image") !== -1) {
+          const blob = items[i].getAsFile();
+          const img = new Image();
+          const URLObj = window.URL || window.webkitURL;
+          img.onload = function() {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0, img.width, img.height);
+            undoStack.length = 0;
+            redoStack.length = 0;
+            pushState();
+            updateCanvasDimensions();
+          }
+          img.src = URLObj.createObjectURL(blob);
+        }
+      }
+    });
+
+    // 當滑鼠在 canvas 上移動時，若工具是筆刷或橡皮擦則更新指示器
+    canvas.addEventListener("mousemove", function(e) {
+      if (currentTool === "pencil" || currentTool === "eraser") {
+        updateCursorOverlay(e);
+      }
+    });
+    canvas.addEventListener("mouseleave", function(e) {
+      cursorOverlay.style.display = "none";
+    });
+
+    updateCanvasDimensions();
+  </script>
+</body>
+</html>
