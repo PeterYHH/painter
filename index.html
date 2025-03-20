@@ -2,6 +2,8 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <!-- 加入 viewport meta 標籤 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小畫家</title>
   <!-- 引入 Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
@@ -15,14 +17,17 @@
     }
     #toolbar {
       background: linear-gradient(to right, #4a90e2, #357ab8);
-      padding: 12px 20px;
+      padding: 12px 10px;
       text-align: center;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      border-bottom: none;
+      flex-wrap: wrap;
     }
-    /* 將工具列分成兩行 */
+    /* 工具列設定為響應式 */
     #buttonRow, #statusRow {
-      display: block;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;  /* 垂直置中 */
       margin-bottom: 5px;
     }
     #statusRow {
@@ -31,7 +36,7 @@
     #toolbar button,
     #toolbar select,
     #toolbar input {
-      margin: 0 5px;
+      margin: 5px;
       padding: 6px 12px;
       font-size: 14px;
       border: none;
@@ -59,13 +64,14 @@
     #toolbar label {
       color: #fff;
       font-weight: 500;
-      margin-left: 10px;
+      margin-left: 5px;
+      vertical-align: middle;
     }
     #currentToolDisplay, #canvasDimensions {
       font-weight: 500;
       color: #fff;
     }
-    /* 新增裁剪尺寸提示（跟隨滑鼠） */
+    /* 裁剪尺寸提示（跟隨滑鼠） */
     #cropInfo {
       position: absolute;
       display: none;
@@ -77,7 +83,7 @@
       pointer-events: none;
       z-index: 1000;
     }
-    /* 新增筆刷／橡皮擦指示器（跟隨滑鼠） */
+    /* 筆刷／橡皮擦指示器（跟隨滑鼠） */
     #cursorOverlay {
       position: absolute;
       pointer-events: none;
@@ -86,25 +92,40 @@
       display: none;
       z-index: 1000;
     }
+    /* 畫布容器響應式設計 */
     #canvasWrapper {
       display: flex;
       justify-content: center;
       align-items: center;
-      margin: 20px;
+      margin: 20px auto;
+      max-width: 100%;
+      padding: 0 10px;
     }
+    /* canvas 自動縮放 */
     canvas {
+      width: 100%;
+      max-width: 800px;
+      height: auto;
       border: 1px solid #ccc;
       border-radius: 6px;
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
       background-color: #fff;
       cursor: crosshair;
     }
+    @media (max-width: 480px) {
+      #toolbar button,
+      #toolbar select,
+      #toolbar input {
+        font-size: 12px;
+        padding: 4px 8px;
+      }
+    }
   </style>
 </head>
 <body>
   <div id="toolbar">
     <div id="buttonRow">
-      <!-- 筆刷按鈕與相關控制項放在同一行 -->
+      <!-- 原有工具 -->
       <button id="pencil" class="active">筆刷</button>
       <select id="brushSize">
         <option value="2">細</option>
@@ -114,7 +135,6 @@
       </select>
       <input type="color" id="colorPicker" value="#ff0000">
       
-      <!-- 橡皮擦按鈕與獨立尺寸選項 -->
       <button id="eraser">橡皮擦</button>
       <select id="eraserSize">
         <option value="2">細</option>
@@ -124,18 +144,43 @@
       </select>
       
       <button id="mosaic">馬賽克</button>
-      <!-- 馬賽克大小放在馬賽克按鈕旁 -->
       <label for="mosaicBlockSize">馬賽克大小:</label>
       <input type="number" id="mosaicBlockSize" value="10" min="2" style="width:60px;">
       
       <button id="crop">裁剪</button>
       
-      <!-- 旋轉為即時操作 -->
       <button id="rotate">旋轉</button>
       <label for="rotateAngle">旋轉角度:</label>
       <input type="number" id="rotateAngle" value="90" style="width:60px;">
       
-      <!-- 復原與取消復原按鈕 -->
+      <!-- 形狀工具與下拉選單 -->
+      <button id="shape">形狀</button>
+      <select id="shapeType">
+        <option value="rect">矩形</option>
+        <option value="circle">圓形</option>
+        <option value="line">直線</option>
+        <option value="ellipse">橢圓</option>
+        <option value="triangle">三角形</option>
+      </select>
+      
+      <!-- 文字工具與字型設定 -->
+      <button id="text">文字</button>
+      <label for="fontFamily">字型:</label>
+      <select id="fontFamily">
+        <option value="sans-serif" selected>Sans-serif</option>
+        <option value="serif">Serif</option>
+        <option value="monospace">Monospace</option>
+        <option value="cursive">Cursive</option>
+        <option value="fantasy">Fantasy</option>
+      </select>
+      <label for="fontSize">大小:</label>
+      <input type="number" id="fontSize" value="20" min="10" style="width:60px;">
+      <label for="fontBold">粗體</label>
+      <input type="checkbox" id="fontBold">
+      <label for="fontItalic">斜體</label>
+      <input type="checkbox" id="fontItalic">
+      
+      <!-- 復原、清除、儲存與複製 -->
       <button id="undo">復原 (0)</button>
       <button id="redo">取消復原 (0)</button>
       <button id="clear">清除</button>
@@ -161,27 +206,39 @@
     const cropInfo = document.getElementById("cropInfo");
     const cursorOverlay = document.getElementById("cursorOverlay");
 
+    // 取得控制項
+    const shapeTypeSelect = document.getElementById("shapeType");
+    const fontFamilySelect = document.getElementById("fontFamily");
+    const fontSizeInput = document.getElementById("fontSize");
+    const fontBoldCheckbox = document.getElementById("fontBold");
+    const fontItalicCheckbox = document.getElementById("fontItalic");
+
     // 更新畫布尺寸顯示
     function updateCanvasDimensions() {
       document.getElementById("canvasDimensions").innerText =
         "畫布尺寸：" + canvas.width + " x " + canvas.height;
     }
 
-    // 更新復原與取消復原按鈕次數顯示
+    // 更新復原/取消復原顯示
     function updateUndoRedoDisplay() {
       document.getElementById("undo").innerText = "復原 (" + undoStack.length + ")";
       document.getElementById("redo").innerText = "取消復原 (" + redoStack.length + ")";
     }
 
-    // 畫圖相關變數
+    // 畫圖變數
     let drawing = false;
-    let currentTool = "pencil";  // 可選：pencil、eraser、mosaic、crop
+    let currentTool = "pencil";  // 可選：pencil、eraser、mosaic、crop、shape、text
     let brushSize = document.getElementById("brushSize").value;
     let currentColor = document.getElementById("colorPicker").value;
     let eraserSize = document.getElementById("eraserSize").value;
     const mosaicBlockSize = document.getElementById("mosaicBlockSize");
 
-    // 使用 state 物件 {width, height, data} 儲存復原狀態
+    // 形狀工具變數
+    let shapeDrawing = false;
+    let shapeStartX = 0, shapeStartY = 0;
+    let shapeSnapshot = null;
+
+    // 儲存復原狀態
     const undoStack = [];
     const redoStack = [];
     function pushState() {
@@ -224,24 +281,26 @@
       }
     }
 
-    // 用於馬賽克的變數
+    // 馬賽克變數
     let mosaicDrawing = false;
     let mosaicStartX = 0, mosaicStartY = 0;
     let mosaicSnapshot = null;
 
-    // 用於裁剪的變數
+    // 裁剪變數
     let cropDrawing = false;
     let cropStartX = 0, cropStartY = 0;
     let cropSnapshot = null;
 
-    // 取得 canvas 內滑鼠相對座標
+    // 取得滑鼠相對座標，考慮縮放比例
     function getX(e) {
       const rect = canvas.getBoundingClientRect();
-      return e.clientX - rect.left;
+      const scaleX = canvas.width / rect.width;
+      return (e.clientX - rect.left) * scaleX;
     }
     function getY(e) {
       const rect = canvas.getBoundingClientRect();
-      return e.clientY - rect.top;
+      const scaleY = canvas.height / rect.height;
+      return (e.clientY - rect.top) * scaleY;
     }
 
     // 更新目前工具顯示
@@ -252,6 +311,8 @@
         case "eraser": displayText = "橡皮擦"; break;
         case "mosaic": displayText = "馬賽克"; break;
         case "crop":   displayText = "裁剪"; break;
+        case "shape":  displayText = "形狀"; break;
+        case "text":   displayText = "文字"; break;
         default: displayText = "";
       }
       document.getElementById("currentToolDisplay").innerText = "目前工具：" + displayText;
@@ -261,7 +322,7 @@
     }
     // 更新工具按鈕 active 樣式
     function updateToolButtonStyles(selectedTool) {
-      const buttons = ["pencil", "eraser", "mosaic", "crop"];
+      const buttons = ["pencil", "eraser", "mosaic", "crop", "shape", "text"];
       buttons.forEach(tool => {
         document.getElementById(tool).classList.toggle("active", tool === selectedTool);
       });
@@ -270,17 +331,11 @@
     // 更新筆刷／橡皮擦指示器
     function updateCursorOverlay(e) {
       if (currentTool === "pencil" || currentTool === "eraser") {
-        let size = 0;
-        if (currentTool === "pencil") {
-          size = parseInt(brushSize);
-        } else if (currentTool === "eraser") {
-          size = parseInt(eraserSize);
-        }
+        let size = currentTool === "pencil" ? parseInt(brushSize) : parseInt(eraserSize);
         cursorOverlay.style.display = "block";
         cursorOverlay.style.width = size + "px";
         cursorOverlay.style.height = size + "px";
         cursorOverlay.style.borderRadius = "50%";
-        // 當筆刷則使用目前色彩，當橡皮擦則使用灰色
         cursorOverlay.style.border = "1px solid " + (currentTool === "pencil" ? currentColor : "#888");
         cursorOverlay.style.left = (e.pageX - size / 2) + "px";
         cursorOverlay.style.top = (e.pageY - size / 2) + "px";
@@ -317,7 +372,7 @@
       ctx.beginPath();
     }
 
-    // 清除功能：重設畫布尺寸為 800×600，並清空所有內容與復原/取消復原記錄
+    // 清除功能
     function clearCanvas() {
       canvas.width = 800;
       canvas.height = 600;
@@ -333,8 +388,6 @@
       link.href = canvas.toDataURL();
       link.click();
     }
-
-    // 複製到剪貼簿功能，使用 Clipboard API
     function copyToClipboard() {
       canvas.toBlob(function(blob) {
         const item = new ClipboardItem({ "image/png": blob });
@@ -346,7 +399,7 @@
       });
     }
 
-    // 馬賽克效果：對指定區域進行像素化處理
+    // 馬賽克效果
     function applyMosaic(x, y, width, height, blockSize) {
       if (width === 0 || height === 0) return;
       const imgData = ctx.getImageData(x, y, width, height);
@@ -390,7 +443,7 @@
       ctx.putImageData(imgData, x, y);
     }
 
-    // 旋轉功能：旋轉整個畫布圖片，支援復原
+    // 旋轉功能
     function rotateImage(angle) {
       pushState();
       const rad = angle * Math.PI / 180;
@@ -425,10 +478,34 @@
         cropStartY = getY(e);
         cropSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
         cropInfo.style.display = "block";
+      } else if (currentTool === "shape") {
+        shapeDrawing = true;
+        shapeStartX = getX(e);
+        shapeStartY = getY(e);
+        shapeSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      } else if (currentTool === "text") {
+        pushState();
+        const x = getX(e);
+        const y = getY(e);
+        const text = prompt("請輸入文字:");
+        if (text) {
+          const fontFamily = fontFamilySelect.value;
+          const fontSize = fontSizeInput.value;
+          const fontBold = fontBoldCheckbox.checked;
+          const fontItalic = fontItalicCheckbox.checked;
+          let fontStyle = "";
+          if (fontItalic) fontStyle += "italic ";
+          if (fontBold) fontStyle += "bold ";
+          fontStyle += fontSize + "px " + fontFamily;
+          ctx.fillStyle = currentColor;
+          ctx.font = fontStyle;
+          ctx.fillText(text, x, y);
+        }
       } else {
         startDraw(e);
       }
     });
+
     canvas.addEventListener("mousemove", function(e) {
       if (currentTool === "pencil" || currentTool === "eraser") {
         updateCursorOverlay(e);
@@ -468,10 +545,48 @@
         ctx.rect(rectX, rectY, rectWidth, rectHeight);
         ctx.stroke();
         ctx.setLineDash([]);
+      } else if (currentTool === "shape" && shapeDrawing) {
+        ctx.putImageData(shapeSnapshot, 0, 0);
+        const currentX = getX(e);
+        const currentY = getY(e);
+        const type = shapeTypeSelect.value;
+        ctx.beginPath();
+        ctx.setLineDash([6, 3]);
+        ctx.lineWidth = 1;
+        if (type === "rect") {
+          const rectX = Math.min(shapeStartX, currentX);
+          const rectY = Math.min(shapeStartY, currentY);
+          const rectWidth = Math.abs(currentX - shapeStartX);
+          const rectHeight = Math.abs(currentY - shapeStartY);
+          ctx.strokeStyle = "blue";
+          ctx.rect(rectX, rectY, rectWidth, rectHeight);
+        } else if (type === "line") {
+          ctx.strokeStyle = "blue";
+          ctx.moveTo(shapeStartX, shapeStartY);
+          ctx.lineTo(currentX, currentY);
+        } else if (type === "circle") {
+          const radius = Math.hypot(currentX - shapeStartX, currentY - shapeStartY);
+          ctx.strokeStyle = "blue";
+          ctx.arc(shapeStartX, shapeStartY, radius, 0, Math.PI * 2);
+        } else if (type === "ellipse") {
+          const radiusX = Math.abs(currentX - shapeStartX);
+          const radiusY = Math.abs(currentY - shapeStartY);
+          ctx.strokeStyle = "blue";
+          ctx.ellipse(shapeStartX, shapeStartY, radiusX, radiusY, 0, 0, Math.PI * 2);
+        } else if (type === "triangle") {
+          ctx.strokeStyle = "blue";
+          ctx.moveTo(shapeStartX, shapeStartY);
+          ctx.lineTo(currentX, shapeStartY);
+          ctx.lineTo((shapeStartX + currentX) / 2, currentY);
+          ctx.closePath();
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
       } else {
         draw(e);
       }
     });
+
     canvas.addEventListener("mouseup", function(e) {
       if (currentTool === "mosaic" && mosaicDrawing) {
         mosaicDrawing = false;
@@ -498,6 +613,39 @@
         ctx.putImageData(croppedData, 0, 0);
         updateCanvasDimensions();
         cropInfo.style.display = "none";
+      } else if (currentTool === "shape" && shapeDrawing) {
+        shapeDrawing = false;
+        ctx.putImageData(shapeSnapshot, 0, 0);
+        const currentX = getX(e);
+        const currentY = getY(e);
+        const type = shapeTypeSelect.value;
+        pushState();
+        ctx.beginPath();
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = brushSize;
+        if (type === "rect") {
+          const rectX = Math.min(shapeStartX, currentX);
+          const rectY = Math.min(shapeStartY, currentY);
+          const rectWidth = Math.abs(currentX - shapeStartX);
+          const rectHeight = Math.abs(currentY - shapeStartY);
+          ctx.rect(rectX, rectY, rectWidth, rectHeight);
+        } else if (type === "line") {
+          ctx.moveTo(shapeStartX, shapeStartY);
+          ctx.lineTo(currentX, currentY);
+        } else if (type === "circle") {
+          const radius = Math.hypot(currentX - shapeStartX, currentY - shapeStartY);
+          ctx.arc(shapeStartX, shapeStartY, radius, 0, Math.PI * 2);
+        } else if (type === "ellipse") {
+          const radiusX = Math.abs(currentX - shapeStartX);
+          const radiusY = Math.abs(currentY - shapeStartY);
+          ctx.ellipse(shapeStartX, shapeStartY, radiusX, radiusY, 0, 0, Math.PI * 2);
+        } else if (type === "triangle") {
+          ctx.moveTo(shapeStartX, shapeStartY);
+          ctx.lineTo(currentX, shapeStartY);
+          ctx.lineTo((shapeStartX + currentX) / 2, currentY);
+          ctx.closePath();
+        }
+        ctx.stroke();
       } else {
         endDraw();
       }
@@ -510,13 +658,16 @@
         cropDrawing = false;
         ctx.putImageData(cropSnapshot, 0, 0);
         cropInfo.style.display = "none";
+      } else if (currentTool === "shape" && shapeDrawing) {
+        shapeDrawing = false;
+        ctx.putImageData(shapeSnapshot, 0, 0);
       } else {
         endDraw();
       }
       cursorOverlay.style.display = "none";
     });
 
-    // 工具按鈕事件綁定
+    // 工具按鈕事件
     document.getElementById("pencil").addEventListener("click", () => {
       currentTool = "pencil";
       updateCurrentToolDisplay();
@@ -540,6 +691,16 @@
     document.getElementById("rotate").addEventListener("click", () => {
       const angle = parseFloat(document.getElementById("rotateAngle").value);
       rotateImage(angle);
+    });
+    document.getElementById("shape").addEventListener("click", () => {
+      currentTool = "shape";
+      updateCurrentToolDisplay();
+      updateToolButtonStyles("shape");
+    });
+    document.getElementById("text").addEventListener("click", () => {
+      currentTool = "text";
+      updateCurrentToolDisplay();
+      updateToolButtonStyles("text");
     });
     document.getElementById("brushSize").addEventListener("change", (e) => {
       brushSize = e.target.value;
@@ -577,7 +738,6 @@
       }
     });
 
-    // 當滑鼠在 canvas 上移動時，若工具是筆刷或橡皮擦則更新指示器
     canvas.addEventListener("mousemove", function(e) {
       if (currentTool === "pencil" || currentTool === "eraser") {
         updateCursorOverlay(e);
