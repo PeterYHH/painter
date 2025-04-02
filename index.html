@@ -588,6 +588,20 @@
     });
 
     updateCanvasDimensions();
+
+    // 加入快捷鍵支援：Ctrl/Cmd+Z (復原) 與 Ctrl/Cmd+Y (取消復原)
+    document.addEventListener("keydown", function(e) {
+      const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {
+        if (e.key === "z" || e.key === "Z") {
+          e.preventDefault();
+          undo();
+        } else if (e.key === "y" || e.key === "Y") {
+          e.preventDefault();
+          redo();
+        }
+      }
+    });
   </script>
 </body>
 </html>
